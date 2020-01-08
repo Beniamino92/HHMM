@@ -18,4 +18,4 @@ Parts of this software were adapted from
 3. Yee Whye Teh’s "Nonparametric Bayesian Mixture Models" MATLAB package, release 1 (http://www.stats.ox.ac.uk/~teh/).
 
 
-===============================================================================
+
