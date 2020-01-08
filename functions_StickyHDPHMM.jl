@@ -1,4 +1,4 @@
-ENV["MPLBACKEND"]="qt4agg"; using PyPlot
+using PyPlot
 using Distributions
 using ProgressMeter
 using StatsBase
@@ -10,6 +10,19 @@ using CSV
 using DataFrames
 
 
+
+# Function: function return design matrix with basis function.
+function get_X(ω, a, b)
+
+  M = length(ω)
+  time = a:b
+  X = ones(length(time))
+
+  for j in 1:M
+    X = hcat(X, cos.(2π*time*ω[j]),sin.(2π*time*ω[j]))
+  end
+  return X[:, 2:end]
+end
 
 # Function: return totSeq, an indSeq, given state sequence z.
 function get_Seq(z)
@@ -221,6 +234,8 @@ function get_starting_value_θ(z_start, n_freq_max_start)
 end
 
 
+
+
 # Function: sample transition distributions, given sampled hyperparameters and
 #           count matrices
 function sample_dist(α_plus_κ, γ, ρ, N, barM)
@@ -282,8 +297,6 @@ function compute_likelihood(m, β, ω, σ)
     return likelihood
 end
 
-
-
 # Function: compute backward messages.
 function backwards_message_vec(likelihood, π_z)
 
@@ -306,7 +319,6 @@ function backwards_message_vec(likelihood, π_z)
     return  partial_marg
 end
 
-
 # Function: sample the mode z's, given the observations, transition distributions
 #           and emission parameters.
 function sample_z(π_z, π_init, m, β, ω, σ)
@@ -315,6 +327,7 @@ function sample_z(π_z, π_init, m, β, ω, σ)
     z = zeros(Int64, T)
     totSeq = zeros(Int64, Kz)
     indSeq = zeros(Int64, T, Kz)
+    classProb = zeros(T, Kz)
 
     # Compute likelihood of each observation under each parameter θ
     likelihood = compute_likelihood(m, β, ω, σ)
@@ -330,7 +343,10 @@ function sample_z(π_z, π_init, m, β, ω, σ)
         else
             Pz = π_z[z[t-1], :] .* partial_marg[:, t];
         end
+        # println(Pz)
+        classProb[t, :] = Pz/sum(Pz)
         Pz = cumsum(Pz)
+
         z[t] = 1 + sum(Pz[end]*rand() .> Pz)
 
         # --- Add state to counts matrix
@@ -347,11 +363,11 @@ function sample_z(π_z, π_init, m, β, ω, σ)
 
 
     output = Dict("stateSeq" => z, "N" => N,
-                  "totSeq" => totSeq, "indSeq" => indSeq)
+                  "totSeq" => totSeq, "indSeq" => indSeq,
+                  "classProb" => classProb)
 
     return output
 end
-
 
 # Function: sample number of tables that served dish k in restaurant j
 #           for each k and j. It returns a (Kz+1)×(Kz) matrix
@@ -372,8 +388,6 @@ function randnumtable(α, numdata)
     return numtable
 end
 
-
-
 # - Function: sample barM and sum_w
 function sample_barM(M, β_vec, ρ)
 
@@ -390,7 +404,6 @@ function sample_barM(M, β_vec, ρ)
                   "barM" => barM)
     return output
 end
-
 
 # Function: sample_tables
 function sample_tables(N, α_plus_κ, ρ, β_vec)
@@ -412,7 +425,6 @@ function sample_tables(N, α_plus_κ, ρ, β_vec)
 
     return output
 end
-
 
 
 # Function: Auxiliary variable resampling of DP concentration parameter
@@ -438,7 +450,6 @@ function gibbs_conparam(α, numdata, numclass, aa, bb, numiter)
 
     return α
 end
-
 
 
 # Function: sample concentration parameters that define the distribution on transition
@@ -478,7 +489,6 @@ function sample_hyperparams(N, M, barM, sum_w, α_plus_κ, γ, hyperHMMhyperpara
 end
 
 
-
 # -- Function: given a sequence of indexes it returns a matrix with
 #    start point and end point of each segment of time series corresponding
 #    to that regime.
@@ -503,8 +513,6 @@ function get_time_indexes(indexes)
   clear!(:a)
   return A
 end
-
-
 
 # Function: return time points and data w.p
 # proportional to length of the time series (if ts_sample = true)

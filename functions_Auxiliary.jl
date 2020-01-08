@@ -1,15 +1,95 @@
-# Function: function return design matrix with basis function.
-function get_X(ω, a, b)
+using PyPlot
+using Distributions
+using ProgressMeter
+using StatsBase
+using Optim
+using JLD
+using DSP
+using RCall
+using CSV
+using DataFrames
 
-  M = length(ω)
-  time = a:b
-  X = ones(length(time))
 
-  for j in 1:M
-    X = hcat(X, cos.(2π*time*ω[j]),sin.(2π*time*ω[j]))
-  end
-  return X[:, 2:end]
+
+
+
+# Function: analtical formulation spectrum AR(p)
+function arspec(ω, ϕ, σ)
+
+    n_ω = length(ω)
+    out = zeros(Float64, n_ω)
+    p = length(ϕ)
+
+    for i in 1:n_ω
+        temp = 0.0
+        for j in 1:p
+            temp = temp + ϕ[j] * (exp(-im*(2π)*ω[i])^j)
+        end
+        out[i] = (σ^2)/(abs((1- temp))^2)
+    end
+
+    return out
 end
+
+# Function: generate state prediction for (n_pred) observations
+function generate_state_prediction(n_pred)
+
+    π_z = copy(π_z_est_tot)
+    Kz = size(π_z, 2)
+    z_end = z_est[end]
+
+    z_pred = []
+
+    for tt in (T+1):(T+n_pred)
+        if (tt == T + 1)
+            z_weights = Weights(π_z[z_end, states_analysis])
+        else
+            z_weights = Weights(π_z[z_pred[end], states_analysis])
+        end
+        append!(z_pred, sample(states_analysis, z_weights))
+    end
+
+    return z_pred
+end
+
+
+# Function: given z, returns info about n .of observations for states
+#           in all segments determined by z.
+function get_z_info(z)
+
+  z_info = zeros(Int64, 2)
+  count = 1
+
+  for t in 2:T
+    if (z[t] != z[t-1])
+      z_info = hcat(z_info, [z[t-1], count])
+      count = 0
+    end
+
+    count+=1
+
+  end
+  z_info = hcat(z_info, [z[end], count])
+
+  return(z_info[:, 2:end])
+end
+
+
+
+# Function: simulate two_state AR_HMM
+function simulate_AR_HMM(ψ_AR, z_true; warm_up = 100)
+
+  data = zeros(T+warm_up)
+  z = vcat(z_true[1:warm_up], z_true)
+
+  for t in 3:(T+warm_up)
+    data[t] = ψ_AR[z[t]][:ψ_1]*data[t-1] + ψ_AR[z[t]][:ψ_2]*data[t-2] +
+              rand(Normal(0, σ_AR[z[t]]))
+  end
+
+  return(data[(warm_up+1):end])
+end
+
 
 
 
@@ -278,8 +358,9 @@ function generate_labels(π_z, π_init, T)
 end
 
 # Function: obtain summary of frequency location and
-# corresponding power (posterior mean and std)
-function get_summary(regime; plot = true)
+# corresponding power (posterior mean and std), without
+# permuting the posterior sample.
+function get_summary(regime; plotting = true)
 
   seg = find(unique_regimes_analysis[:, 1] .== regime)[1]
 
@@ -288,31 +369,31 @@ function get_summary(regime; plot = true)
   m_est = mode(m_seg)
   modal_indexes = intersect(find(temp .== mode(temp)), find(m_seg .== m_est))
 
-  if plot == true
+  if plotting == true
     close();
     for m in 1:m_est
       new_sample = [ω_analysis[temp[i], m, i] for i in modal_indexes]
       subplot(m_est, 1, m)
       new_sample_no_outliers = new_sample[new_sample .< (mean(new_sample) + 0.01)]
-      PyPlot.plot(new_sample_no_outliers)
+      plot(new_sample_no_outliers)
     end
   end
 
-  # if plot
-  #   close();
-  #   for m in 1:m_est
-  #     new_sample = [ω_analysis[temp[i], m, i] for i in modal_indexes]
-  #     subplot(m_est, 1, m)
-  #     new_sample_no_outliers = new_sample[new_sample .< (mean(new_sample) + 0.01)]
-  #     plot(new_sample_no_outliers)
-  #   end
-  # end
+  β_aux = zeros(Float64, 2*m_est, length(modal_indexes))
+  σ_aux = zeros(Float64, length(modal_indexes))
+  for i in 1:length(modal_indexes)
+      β_aux[:, i] = β_analysis[temp[i], 1:(2*m_est), i]
+      σ_aux[i] = σ_analysis[temp[i], i]
+  end
 
   summary_ω = zeros(m_est, 2)
+  summary_β = zeros(2*m_est)
   summary_power = zeros(m_est, 2)
+  summary_σ = mean(σ_aux)
 
 
   for m in 1:m_est
+
     new_sample_ω = [ω_analysis[temp[i], m, i] for i in modal_indexes]
     new_sample_power = [sqrt(sum(β_analysis[temp[i], [2*m-1, 2*m], i].^2)) for i in modal_indexes]
 
@@ -324,8 +405,185 @@ function get_summary(regime; plot = true)
     summary_ω[m, 2] = sqrt(var(new_sample_ω_no_outliers))
     summary_power[m, 1] = mean(new_sample_power_no_outliers)
     summary_power[m, 2] = sqrt(var(new_sample_power_no_outliers))
+    summary_β[(2*m-1):(2*m)] = mean(β_aux[(2*m-1):(2*m), indexes_no_outliers], 2)
+
   end
 
 
-  return Dict(:freq => summary_ω, :power => summary_power)
+  return Dict(:freq => summary_ω, :β => summary_β,
+              :σ => summary_σ, :power => summary_power)
+end
+
+# Function: given permuted labels and regime j,
+#           obtain within-model summary statistics
+#           of posterior frequencies and power,
+#           (conditional on modal n.of.regimes and n.of. freq per regime).
+#           If plotting == true, plot trace for frequencies.
+function get_summary_permuted(j, permuted_labels; plotting = true)
+
+    n_simul = size(permuted_labels, 2)
+
+    perm = permuted_labels[j, :]
+    m_j = [m_analysis[perm[ii], ii] for ii in 1:n_simul]
+    m_est = mode(m_j)
+    modal_indexes = find(m_j .== m_est)
+
+    summary_ω = zeros(m_est, 2)
+    summary_power = zeros(m_est, 2)
+    summary_σ = zeros(2)
+
+    σ_trace = [σ_analysis[perm[ii], ii] for ii in modal_indexes]
+    summary_σ[1] = mean(σ_trace)
+    summary_σ[2] = sqrt(var(σ_trace))
+
+    close();
+    for m in 1:m_est
+
+        ω_trace = [ω_analysis[perm[ii], m, ii] for ii in modal_indexes]
+        summary_ω[m, 1] = mean(ω_trace)
+        summary_ω[m, 2] = sqrt(var(ω_trace))
+
+        power_trace = [sqrt(sum(β_analysis[perm[ii], [2*m-1, 2*m], ii].^2))
+                      for ii in modal_indexes]
+        summary_power[m, 1] = mean(power_trace)
+        summary_power[m, 2] = sqrt(var(power_trace))
+
+        if (plotting == true)
+            subplot(m_est, 1, m)
+            plot(ω_trace)
+            suptitle("j = $j", fontsize = 15)
+        end
+    end
+
+    idx_aux = find(summary_power[:, 1] .== maximum(summary_power[:, 1]))[1]
+    ω_dominant = summary_ω[idx_aux, 1]
+
+
+    return Dict(:freq => summary_ω, :power => summary_power,
+                :ω_dominant => ω_dominant)
+end
+
+
+# Function: get_time_varying_ω (averaged over MCMC iterations)
+function get_time_varying_ω()
+
+    m_post = m_final[:, indexes_analysis]
+    ω_post = ω_final[:, :, indexes_analysis]
+    β_post = β_final[:, :, indexes_analysis]
+    z_post = stateSeq_final[:, indexes_analysis]
+
+    n_unique_states_post = n_uniqe_regimes_final[indexes_analysis]
+    unique_states_post = unique_regimes_final[:, indexes_analysis]
+
+    time_varying_ω_sample = zeros(Float64, T, length(indexes_analysis))
+
+    for tt in 1:length(indexes_analysis)
+
+        z = z_post[:, tt]
+        K = n_unique_states_post[tt]
+        active_states = unique_states_post[1:K, tt]
+        dict = Dict()
+
+        for regime in active_states
+
+            n_freq = m_post[regime, tt]
+            ω = ω_post[regime, 1:n_freq, tt]
+            β = β_post[regime, 1:2*n_freq, tt]
+
+            power = [sqrt(sum(β[2*m-1:2*m].^2)) for m in 1:n_freq]
+            ω_dominant = ω[find(power .== maximum(power))[1]]
+            dict[regime] = ω_dominant
+
+        end
+
+        time_varying_ω_sample[:, tt] = [dict[z[ii]] for ii in 1:T]
+    end
+
+
+    time_varying_ω_mean = mean(time_varying_ω_sample, 2)
+
+    return Dict(:mean => time_varying_ω_mean, :sample => time_varying_ω_sample)
+end
+
+function get_time_varying_ω_permuted(stateSeq_est, permuted_labels)
+
+
+    active_states = unique(stateSeq_est)
+    time_varying_peak_est = zeros(Float64, T)
+    dict = Dict()
+
+
+    for regime in active_states
+        summary_regime = get_summary_permuted(regime, permuted_labels; plotting = false)
+        dict[regime] = summary_regime
+    end
+
+    for t in 1:T
+        z = stateSeq_est[t]
+        time_varying_peak_est[t] = dict[z][:ω_dominant]
+    end
+
+    return time_varying_peak_est
+end
+
+# Function: generating signal prediction + 5% Gaussian C.I
+function generate_signal_prediction(z_pred)
+
+    signal_pred = []
+    upper = []
+    lower = []
+
+
+    n_pred = length(z_pred)
+    z_aux = vcat(z_est, z_pred)
+
+    for tt in (T+1):(T+n_pred)
+
+        regime = z_aux[tt]
+        ω = Dict_summary[regime][:freq][:, 1]
+
+        β = Dict_summary[regime][:β]
+        σ = Dict_summary[regime][:σ]
+        interval_975 = quantile(Normal(0, σ), .975)
+
+        x_t = get_X(ω, tt, tt)
+        signal_t = (x_t * β)[1]
+        upper_t = signal_t + interval_975
+        lower_t = signal_t - interval_975
+        append!(signal_pred, signal_t)
+        append!(upper, upper_t)
+        append!(lower, lower_t)
+
+    end
+
+
+    return Dict(:signal => convert(Array{Float64}, signal_pred),
+                :upper => convert(Array{Float64}, upper),
+                :lower => convert(Array{Float64}, lower))
+end
+
+
+# Super inefficient function to get the likelihood of the system.
+function get_likelik_system(z, m, ω, β, σ, π_z, π_init)
+
+  tot = 0.0
+
+  Threads.@threads for ii in 1:T
+
+    X = get_X_star(ω[z[ii], 1:m[z[ii]]], ii)
+    β_aux = β[z[ii], 1:(2*m[z[ii]])]
+    μ = (X*β_aux)[1]
+
+    likelik = pdf(Normal(μ, σ[z[ii]]), data[ii])
+
+    if ii == 1
+      transition_prob = π_init[z[ii]]
+    else
+      transition_prob = π_z[z[ii-1], z[ii]]
+    end
+
+    tot +=  log(transition_prob) + log(likelik)
+  end
+
+  return tot
 end

@@ -1,4 +1,4 @@
-ENV["MPLBACKEND"]="qt4agg"; using PyPlot
+using PyPlot
 using Distributions
 using ProgressMeter
 using StatsBase
@@ -25,18 +25,18 @@ function get_X_star(ω, time_star)
   return X[:, 2:end]
 end
 
-# # Function: function return design matrix with basis function.
-# function get_X(ω, a, b)
-#
-#   M = length(ω)
-#   time = a:b
-#   X = ones(length(time))
-#
-#   for j in 1:M
-#     X = hcat(X, cos.(2π*time*ω[j]),sin.(2π*time*ω[j]))
-#   end
-#   return X[:, 2:end]
-# end
+# Function: function return design matrix with basis function.
+function get_X(ω, a, b)
+
+  M = length(ω)
+  time = a:b
+  X = ones(length(time))
+
+  for j in 1:M
+    X = hcat(X, cos.(2π*time*ω[j]),sin.(2π*time*ω[j]))
+  end
+  return X[:, 2:end]
+end
 
 # Function: return detrended data via linear regression over time, and trend
 function detrend(data, time)
@@ -75,50 +75,50 @@ function log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
 end
 
 
-# # Function: negative log_posterior_beta + auxiliary for optim
-# function neg_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
-#   X = get_X_star(ω, time_star)
-#   f = (-sum((y_star - X*β).^2)/(2*(σ^2)) - ((β'*β)/(2*(σ_β^2))))[1]
-#   return -f
-# end
-# function neg_f_posterior_β_stationary(β)
-#   neg_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
-# end
+# Function: negative log_posterior_beta + auxiliary for optim
+function neg_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
+  X = get_X_star(ω, time_star)
+  f = (-sum((y_star - X*β).^2)/(2*(σ^2)) - ((β'*β)/(2*(σ_β^2))))[1]
+  return -f
+end
+function neg_f_posterior_β_stationary(β)
+  neg_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
+end
 
-# # Function: negative gradient log posterior beta + auxiliary for optim
-# function neg_grad_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
-#
-#   p = length(β)
-#   g = zeros(p)
-#   X = get_X_star(ω, time_star)
-#
-#   for i in 1:p
-#     g[i] = sum((y_star - X*β).*X[:, i])/(σ^2) - (β[i]/(σ_β^2))
-#   end
-#
-#   return -g
-# end
-# function neg_g_posterior_β_stationary!(storage, β)
-#   storage[:] = neg_grad_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
-# end
+# Function: negative gradient log posterior beta + auxiliary for optim
+function neg_grad_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
+
+  p = length(β)
+  g = zeros(p)
+  X = get_X_star(ω, time_star)
+
+  for i in 1:p
+    g[i] = sum((y_star - X*β).*X[:, i])/(σ^2) - (β[i]/(σ_β^2))
+  end
+
+  return -g
+end
+function neg_g_posterior_β_stationary!(storage, β)
+  storage[:] = neg_grad_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
+end
 
 
-# # Function: negative hessian log posterior beta + auxiliary for optim
-# function neg_hess_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
-#
-#   p = length(β)
-#   h = zeros(p, p)
-#   X = get_X_star(ω, time_star)
-#
-#   for i in 1:p
-#     h[i, i] = -sum(X[:, i].^2)/(σ^2) - (1/(σ_β^2))
-#   end
-#
-#   return -h
-# end
-# function neg_h_posterior_β_stationary!(storage, β)
-#   storage[:, :] =  neg_hess_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
-# end
+# Function: negative hessian log posterior beta + auxiliary for optim
+function neg_hess_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
+
+  p = length(β)
+  h = zeros(p, p)
+  X = get_X_star(ω, time_star)
+
+  for i in 1:p
+    h[i, i] = -sum(X[:, i].^2)/(σ^2) - (1/(σ_β^2))
+  end
+
+  return -h
+end
+function neg_h_posterior_β_stationary!(storage, β)
+  storage[:, :] =  neg_hess_log_posterior_β_stationary(β, ω, σ, σ_β, time_star)
+end
 
 
 # Function: within move. Proposed frequencies via mixture of FFT sampling and RW
@@ -522,14 +522,16 @@ function RJMCMC_SegmentModelSearch(info_segment_ts, m_current, β_current,
     U = rand()
 
     if (U <= birth_prob)
-      MCMC = birth_move_stationary(info_segment_ts, m_current, β_current, ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
+      MCMC = birth_move_stationary(info_segment_ts, m_current, β_current, ω_current,
+                               σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
       m_out = m_current + Int64(MCMC["accepted"])
       β_out = MCMC["β"]
       ω_out = MCMC["ω"]
       σ_out = MCMC["σ"]
 
     else
-      MCMC = within_model_move_stationary(info_segment_ts, m_current, β_current, ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
+      MCMC = within_model_move_stationary(info_segment_ts, m_current, β_current,
+                              ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
       m_out = m_current
       β_out = MCMC["β"]
       ω_out = MCMC["ω"]
@@ -543,13 +545,15 @@ function RJMCMC_SegmentModelSearch(info_segment_ts, m_current, β_current,
                    pdf(Poisson(λ), n_freq_max)))
     U = rand()
     if (U <= death_prob)
-      MCMC = death_move_stationary(info_segment_ts, m_current, β_current, ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
+      MCMC = death_move_stationary(info_segment_ts, m_current, β_current,
+                          ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
       m_out = m_current - Int64(MCMC["accepted"])
       β_out = MCMC["β"]
       ω_out = MCMC["ω"]
       σ_out = MCMC["σ"]
     else
-      MCMC = within_model_move_stationary(info_segment_ts, m_current, β_current, ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
+      MCMC = within_model_move_stationary(info_segment_ts, m_current, β_current,
+                                ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
       m_out = m_current
       β_out = MCMC["β"]
       ω_out = MCMC["ω"]
@@ -567,7 +571,8 @@ function RJMCMC_SegmentModelSearch(info_segment_ts, m_current, β_current,
 
     # ----- Birth
     if (U <= birth_prob)
-      MCMC = birth_move_stationary(info_segment_ts, m_current, β_current, ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
+      MCMC = birth_move_stationary(info_segment_ts, m_current, β_current,
+                                ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
       m_out = m_current + Int64(MCMC["accepted"])
       β_out = MCMC["β"]
       ω_out = MCMC["ω"]
@@ -576,7 +581,8 @@ function RJMCMC_SegmentModelSearch(info_segment_ts, m_current, β_current,
     # ----- Death
     elseif ((U > birth_prob) && (U <= (birth_prob + death_prob)))
 
-      MCMC = death_move_stationary(info_segment_ts, m_current, β_current, ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
+      MCMC = death_move_stationary(info_segment_ts, m_current, β_current,
+                                ω_current, σ_current, time_star, λ, c, ϕ_ω, ψ_ω)
       m_out = m_current - Int64(MCMC["accepted"])
       β_out = MCMC["β"]
       ω_out = MCMC["ω"]
@@ -584,7 +590,8 @@ function RJMCMC_SegmentModelSearch(info_segment_ts, m_current, β_current,
 
     # ---- Within model
     else
-      MCMC = within_model_move_stationary(info_segment_ts, m_current, β_current, ω_current, σ_current,time_star, λ, c, ϕ_ω, ψ_ω)
+      MCMC = within_model_move_stationary(info_segment_ts, m_current,
+                      β_current, ω_current, σ_current,time_star, λ, c, ϕ_ω, ψ_ω)
       m_out = m_current
       β_out = MCMC["β"]
       ω_out = MCMC["ω"]
