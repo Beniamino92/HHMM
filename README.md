@@ -1,4 +1,4 @@
-========================================================================================
+===================================================
 SpectralHMM - A spectral hidden Markov model for nonstationary oscillatory processes
 
 
