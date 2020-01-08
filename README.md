@@ -1,11 +1,11 @@
 SpectralHMM 
 ========================================================================
- A spectral hidden Markov model for nonstationary oscillatory processes
+
 
 ----- % WORK IN PROGRESS % ---- 
 
 
-a Julia software to model time-varying periodic and oscillatory processes by means of a spectral HMM
+a Julia software to model time-varying periodic and oscillatory processes by means of a spectral hidden Markov model (HMM)
 
 
 Acknowledgments
