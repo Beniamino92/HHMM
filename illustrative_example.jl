@@ -68,12 +68,9 @@ hyperHMMhyperparams = Dict("a_α" => a_α, "b_α" => b_α,
 # --- Other parameteres --
 
 n_inner_MCMC = 2        # n of inner RJMCMC for updating θ_j
-
-
 n_min_obs = 10        # if a state is assigned less than n_min_obs, the
                       # parameters corresponding to that state are drawn
                       # from their priors.
-
 sample_time_series = true # if true: when updating frequencies (sampling periodogram)
                           # for state j, select segment of time series with probability
                           # proportional to n of observation in that segment.
@@ -326,26 +323,100 @@ end
 
 path_MCMC_simulation = string(pwd(),"/simul.jld")
 
-# --- NEED TO MAKE FUNCTION "save_simul and get_simul"  ------
-
-save(path_MCMC_simulation, "m", m_sample, "β", β_sample, "ω", ω_sample,
-     "σ", σ_sample, "indSeq", indSeq_sample, "totSeq", totSeq_sample,
-      "stateSeq", stateSeq_sample, "classProb", classProb_sample,
-      "π_z", π_z_sample, "π_init", π_init_sample, "β_vec", β_vec_sample,
-      "α_plus_κ", α_plus_κ_sample, "γ", γ_sample, "ρ", ρ_sample,
-      "N", N_sample, "M", M_sample, "barM", barM_sample,
-      "sum_w", sum_w_sample, "data", data)
+# save(path_MCMC_simulation, "m", m_sample, "β", β_sample, "ω", ω_sample,
+#      "σ", σ_sample, "indSeq", indSeq_sample, "totSeq", totSeq_sample,
+#       "stateSeq", stateSeq_sample, "classProb", classProb_sample,
+#       "π_z", π_z_sample, "π_init", π_init_sample, "β_vec", α_vec_sample,
+#       "α_plus_κ", η_plus_κ_sample, "γ", γ_sample, "ρ", ρ_sample,
+#       "N", N_sample, "M", M_sample, "barM", barM_sample,
+#       "sum_w", sum_w_sample, "log_likelik", log_likelik_sample, "data", data)
 
 
-# ---- Diagnostic Convergence ----
+MCMC_simul = load(path_MCMC_simulation)
+data = MCMC_simul["data"]
+T = length(data)
 
-# close(); plot(log_likelik_sample)
+
+# ---- Model Parameters
+m_sample = MCMC_simul["m"]
+β_sample = MCMC_simul["β"]
+ω_sample = MCMC_simul["ω"]
+σ_sample = MCMC_simul["σ"]
+
+# ---- Mode Sequence
+stateSeq_sample = MCMC_simul["stateSeq"]
+indSeq_sample = MCMC_simul["indSeq"]
+totSeq_sample = MCMC_simul["totSeq"]
+classProb_sample = MCMC_simul["classProb"]
+
+# ---- Transition Distributions (π) & Overall Dish Rating (β)
+π_z_sample = MCMC_simul["π_z"]
+π_init_sample = MCMC_simul["π_init"]
+β_vec_sample = MCMC_simul["β_vec"]
+
+# ---- HMM Hyperparameters
+η_plus_κ_sample = MCMC_simul["α_plus_κ"]
+γ_sample = MCMC_simul["γ"]
+ρ_sample = MCMC_simul["ρ"]
+
+# ---- State Counts:
+N_sample = MCMC_simul["N"] #  N(i,j) = # z_t = i to z_{t+1}=j transitions in z_{1:T}. N(Kz+1,i) = 1 for i=z_1.
+M_sample = MCMC_simul["M"] #  M(i,j) = # of tables in restaurant i serving dish k
+barM_sample = MCMC_simul["barM"]  # barM(i,j) = # of tables in restaurant i considering dish k
+sum_w_sample = MCMC_simul["sum_w"] #
+
+# --- Log Likelikhood:
+log_likelik_sample = MCMC_simul["log_likelik"]
+
+n_iter_MCMC = size(stateSeq_sample)[2] - 1
+Kz = size(m_sample)[1]
 
 
+
+
+# -------------- Diagnostic Convergence ----------------
+
+close(); plot(log_likelik_sample)
 burn_in_MCMC = Int64(0.5*n_iter_MCMC)
 
-z = stateSeq_sample[:, burn_in_MCMC:end]'
-p = classProb_sample[burn_in_MCMC:end, :, :]
+
+# -  Burned Chains
+
+m_final = m_sample[:, burn_in_MCMC:end]
+β_final = β_sample[:, :, burn_in_MCMC:end]
+ω_final = ω_sample[:, :, burn_in_MCMC:end]
+σ_final = σ_sample[:, burn_in_MCMC:end]
+n_final = size(σ_final)[2]
+
+totSeq_final = totSeq_sample[:, burn_in_MCMC:end]
+stateSeq_final = stateSeq_sample[:, burn_in_MCMC:end]
+indSeq_final = indSeq_sample[:, :, burn_in_MCMC:end]
+classProb_final = classProb_sample[burn_in_MCMC:end, :, :]
+
+η_plus_κ_final = η_plus_κ_sample[burn_in_MCMC:end]
+γ_final = γ_sample[burn_in_MCMC:end]
+ρ_final = ρ_sample[burn_in_MCMC:end]
+n_final = length(ρ_final)
+
+N_final = N_sample[:, :, burn_in_MCMC:end]
+π_z_final = π_z_sample[:, :, burn_in_MCMC:end]
+π_init_final = π_init_sample[:, burn_in_MCMC:end]
+
+
+# - Posterior probability for the number of unique states:
+n_unique_regimes = [length(unique(stateSeq_final[:, ii]))
+                          for ii in 1:n_final]
+for i = 1:Kz
+    prob = length(find(n_unique_regimes .== i))/n_final
+    println(" % n. of regime = ", i, ": ", prob)
+end
+
+# - Selecting  MCMC iterations for whithin model posterior analysis
+n_regime_est = mode(n_unique_regimes)
+indexes_analysis = find(n_unique_regimes .== n_regime_est)
+
+z = stateSeq_final[:, indexes_analysis]'
+p = classProb_final[indexes_analysis, :, :]
 
 
 R"""
@@ -353,3 +424,30 @@ library("label.switching")
 label_sim = label.switching(method = "STEPHENS", z = $z,
                             K = $Kz, p = $p)
 """
+
+label_sim = rcopy(R"label_sim")
+stateSeq_est = reshape(convert(Array{Int64},label_sim[:clusters]), T)
+permuted_labels = label_sim[:permutations][:STEPHENS]'
+
+
+
+
+
+
+# -- Conditioning MCMC sample to modal number of states,
+#    for within model analysis.
+m_analysis = m_final[:, indexes_analysis]
+ω_analysis = ω_final[:, :, indexes_analysis]
+β_analysis = β_final[:, :, indexes_analysis]
+σ_analysis = σ_final[:, indexes_analysis]
+π_z_analysis = π_z_final[:, :, indexes_analysis]
+π_init_analysis = π_init_final[:, indexes_analysis]
+
+#unique_regimes_analysis = unique_regimes_final[:, indexes_analysis]
+stateSeq_analysis = stateSeq_final[:, indexes_analysis]
+
+
+z_unique = unique(stateSeq_analysis)
+state = z_unique[3] # for state in z_unique
+
+get_summary_permuted(state, permuted_labels; plotting = true)
