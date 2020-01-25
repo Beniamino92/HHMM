@@ -380,7 +380,7 @@ close(); plot(log_likelik_sample)
 burn_in_MCMC = Int64(0.5*n_iter_MCMC)
 
 
-# -  Burned Chains
+# ----  Burned Chains
 
 m_final = m_sample[:, burn_in_MCMC:end]
 β_final = β_sample[:, :, burn_in_MCMC:end]
@@ -403,7 +403,7 @@ N_final = N_sample[:, :, burn_in_MCMC:end]
 π_init_final = π_init_sample[:, burn_in_MCMC:end]
 
 
-# - Posterior probability for the number of unique states:
+# - Posterior probability for number of unique states:
 n_unique_regimes = [length(unique(stateSeq_final[:, ii]))
                           for ii in 1:n_final]
 for i = 1:Kz
@@ -415,39 +415,84 @@ end
 n_regime_est = mode(n_unique_regimes)
 indexes_analysis = find(n_unique_regimes .== n_regime_est)
 
-z = stateSeq_final[:, indexes_analysis]'
-p = classProb_final[indexes_analysis, :, :]
 
 
-R"""
-library("label.switching")
-label_sim = label.switching(method = "STEPHENS", z = $z,
-                            K = $Kz, p = $p)
-"""
+# ----- Relabelling Algorithm - Stephens
+# Post processing the posterior sample for (within model) inference.
 
-label_sim = rcopy(R"label_sim")
+# z = stateSeq_final[:, indexes_analysis]'
+# p = classProb_final[indexes_analysis, :, :]
+
+# R"""
+# library("label.switching")
+# label_sim = label.switching(method = "STEPHENS", z = $z,
+#                             K = $Kz, p = $p)
+# """
+#
+# label_sim = rcopy(R"label_sim")
+# path_label = string(pwd(),"/label_simul.jld")
+# save(path_label, "label", label_sim)
+
+
+# -- Loading post processed labels
+# after relabelling algorithm (see comment above)
+
+path_label = string(pwd(),"/label_simul.jld")
+label_sim = load(path_label)["label"]
 stateSeq_est = reshape(convert(Array{Int64},label_sim[:clusters]), T)
 permuted_labels = label_sim[:permutations][:STEPHENS]'
 
 
+# - Conditioning MCMC sample to modal number of states,
+# for posterior (within model) inference.
 
-
-
-
-# -- Conditioning MCMC sample to modal number of states,
-#    for within model analysis.
 m_analysis = m_final[:, indexes_analysis]
 ω_analysis = ω_final[:, :, indexes_analysis]
 β_analysis = β_final[:, :, indexes_analysis]
 σ_analysis = σ_final[:, indexes_analysis]
 π_z_analysis = π_z_final[:, :, indexes_analysis]
 π_init_analysis = π_init_final[:, indexes_analysis]
-
 #unique_regimes_analysis = unique_regimes_final[:, indexes_analysis]
 stateSeq_analysis = stateSeq_final[:, indexes_analysis]
 
 
-z_unique = unique(stateSeq_analysis)
-state = z_unique[3] # for state in z_unique
 
-get_summary_permuted(state, permuted_labels; plotting = true)
+# -------------------------------------------------------
+# -------- Posterior inference frequency and power ------
+# -------------------------------------------------------
+
+z_unique = unique(stateSeq_analysis) # unique states.
+
+# ...for jj = 1 to length(z_unique)
+jj = 3
+state = z_unique[jj] # for each in state in z_unique
+
+# - 'summary_state' -
+
+#   :ω_dominant -> posterior mean of the frequency with higher power.
+#   :freq -> posterior mean frequency, with posterior st.dev.
+#   :power -> posterior mean power, with posterior st.dev.
+
+#  A dictionary containing a summary of the  spectral propertes
+#  of state: z_unique[jj]), conditional on the modal number of
+#  frequencies);
+
+
+summary_state = get_summary_permuted(state,
+                permuted_labels; plotting = true)
+
+
+
+# -- Estimated Signal
+estimated_signal = get_estimated_signal(indexes_analysis)["signal_mean"]
+
+# --- Plot --
+colors = ["red", "grey",  "darkgreen", "blue", "lightgreen",
+          "gold", "purple", "black", "pink", "orange"]
+
+close(); plot_scatter_regime(data, stateSeq_est, colors, 2)
+plot_data_regime(estimated_signal, stateSeq_est, colors, 0.5)
+plot(stateSeq_est + 3, linewidth = 1.3, color = "black")
+xlim(0, T+1)
+ylabel(" \$ y_t \$", fontsize = 15)
+xlabel(" \$ t \$ ", fontsize = 15)
