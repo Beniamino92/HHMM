@@ -1,5 +1,7 @@
-SpectralHMM 
-========================================================================
+
+# SpectralHMM 
+
+
 
 
 ----- % WORK IN PROGRESS % ---- 
@@ -7,11 +9,25 @@ SpectralHMM
 
 Spectral HMM is a Julia (v.0.6.2) software to model time-varying periodic and oscillatory processes by means of a spectral hidden Markov model (HMM) as detailed in Hadj-Amar et al. (2020) "A Spectral Hidden Markov Model for Nonstationary Oscillatory Processes" https://arxiv.org/abs/2001.01676
 
+## Contents
+
+SpectralHMM is illustrated in two studies. In the first scenario the data are generated from the model described in Section 2 of the paper and thus this simulation provides a sanity check that the algorithm is indeed retrieveing the correct-prefixed parameters. The second study deals with artificial data from an HMM whose emission distributions are characterized by oscillatory dynamics generate by state-specific autoregressive (AR) time series models. 
 
 
 
-Acknowledgments
-========================================================================
+
+* Main Inference Scripts:
+```
+illustrative_example.jl, ARHMM_example.jl
+```
+* Functions and Utilities:
+```
+functions_RJMCMC_SegmentModelSearch.jl, functions_StickyHDPHMM.jl, functions_auxiliary.jl
+```
+
+
+#### Acknowledgments
+
 
 Parts of this software were adapted from 
 
