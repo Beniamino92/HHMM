@@ -52,6 +52,18 @@ function generate_state_prediction(n_pred)
     return z_pred
 end
 
+# Function: get time-varying frequency peak for AR-HMM.
+function get_time_varying_ω_true(z_true)
+
+    info_z = get_z_info(z_true)
+    time_varying_peak_true = []
+    for j in 1:size(info_z, 2)
+        n_seg = info_z[2, j]
+        regime = info_z[1, j]
+        append!(time_varying_peak_true, fill(ω_true[regime], n_seg))
+    end
+    return time_varying_peak_true
+end
 
 # Function: given z, returns info about n .of observations for states
 #           in all segments determined by z.
